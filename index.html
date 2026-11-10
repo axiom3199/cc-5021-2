@@ -44,21 +44,34 @@
     <label>地形
       <select id="selTerrain"></select>
     </label>
+    <label>移动台面
+      <select id="selPlatform"></select>
+    </label>
     <div>
       <button id="btnRegen">重新生成地形</button>
       <button id="btnPause">暂停</button>
       <button id="btnStep">单步</button>
     </div>
     <div>
+      <button id="btnRecycle">回收并重建台面</button>
+    </div>
+    <label>时间跳转 (拖动后所有锚点按 time-seek 作废重建)
+      <input type="range" id="rngSeek" min="0" max="12" step="0.05" value="0" style="width:100%" />
+      <span id="seekVal">0.00s</span>
+    </label>
+    <div>
       <button id="btnTest">运行测试场景</button>
       <button id="btnDl" disabled>下载指标 JSON</button>
     </div>
     <div id="live"></div>
+    <div id="anchors"></div>
     <div id="results"></div>
     <div class="hint">
       地形采样每帧实时进行，切换/重新生成地形后立即重新计算。<br/>
       支撑脚权重=1，摆动脚仅保留弱 proximity 权重，避免双脚同时硬贴地面。<br/>
-      采样丢失（缺口）时该脚连续退回原始动画。
+      采样丢失（缺口）时该脚连续退回原始动画。<br/>
+      移动台面上的接触点保存在<b>台面局部坐标</b>，每帧随刚体变换到世界空间；<br/>
+      锚点绑定物体代次 id，台面删除/超范围跳位/时间跳转都会明确解除并显示原因。
     </div>
   </div>
   <script type="module" src="/src/main.js"></script>

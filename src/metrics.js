@@ -1,5 +1,6 @@
 // Per-frame metrics: sole penetration vs. terrain, knee-flexion jump between
-// frames, pelvis jump, terrain-sample misses and IK reach clamps.
+// frames, pelvis jump, terrain-sample misses, IK reach clamps and relative
+// sole-surface sliding (a foot carried by a moving platform must not count).
 export class Metrics {
   constructor() { this.reset(); }
 
@@ -12,6 +13,9 @@ export class Metrics {
     this.maxHipJump = 0;                // max per-frame pelvis height change (m)
     this.misses = { L: 0, R: 0 };       // terrain sample misses
     this.clamps = { L: 0, R: 0 };       // IK reach clamps
+    this.maxSlip = { L: 0, R: 0 };      // max sole-vs-surface relative speed (m/s)
+    this.sumSlip2 = { L: 0, R: 0 };
+    this.nSlip = { L: 0, R: 0 };
     this._knee = { L: null, R: null };
     this._hipY = null;
   }
@@ -22,7 +26,7 @@ export class Metrics {
   miss(s) { this.misses[s]++; }
   clamp(s) { this.clamps[s]++; }
 
-  frame({ soleY, groundY, hit, w, kneeFlex, hipY }) {
+  frame({ soleY, groundY, hit, w, kneeFlex, hipY, relVel }) {
     this.frames++;
     for (const s of ['L', 'R']) {
       if (hit[s] && w[s] > 0.5) {
@@ -33,6 +37,11 @@ export class Metrics {
         const pos = Math.max(0, pen);
         this.sumPen2[s] += pos * pos;
         this.nPen[s]++;
+        // relative slip only meaningful while weighted onto the surface
+        const rv = relVel ? relVel[s] : 0;
+        if (rv > this.maxSlip[s]) this.maxSlip[s] = rv;
+        this.sumSlip2[s] += rv * rv;
+        this.nSlip[s]++;
       }
       if (this._knee[s] !== null) {
         const j = Math.abs(kneeFlex[s] - this._knee[s]);
@@ -49,12 +58,15 @@ export class Metrics {
 
   summary() {
     const rms = (s) => this.nPen[s] ? Math.sqrt(this.sumPen2[s] / this.nPen[s]) : 0;
+    const slipRms = (s) => this.nSlip[s] ? Math.sqrt(this.sumSlip2[s] / this.nSlip[s]) : 0;
     return {
       frames: this.frames,
       maxPenM: Math.max(this.maxPen.L, this.maxPen.R),
       rmsPenM: Math.max(rms('L'), rms('R')),
       maxKneeJumpDeg: Math.max(this.maxKneeJump.L, this.maxKneeJump.R),
       maxHipJumpM: this.maxHipJump,
+      maxSlipMs: Math.max(this.maxSlip.L, this.maxSlip.R),
+      rmsSlipMs: Math.max(slipRms('L'), slipRms('R')),
       misses: this.misses.L + this.misses.R,
       clamps: this.clamps.L + this.clamps.R,
     };

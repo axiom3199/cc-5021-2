@@ -4,6 +4,7 @@ import { buildTerrain, PRESETS } from './terrain.js';
 import { Character } from './character.js';
 import { Grounder } from './grounding.js';
 import { Metrics } from './metrics.js';
+import { PlatformWorld, PLATFORM_SCENARIOS, RELEASE_LABEL, RELEASE } from './platforms.js';
 
 const state = {
   preset: 'mixed',
@@ -52,7 +53,8 @@ ghost.root.visible = false;
 scene.add(ghost.root);
 
 let terrain = null;
-const grounder = new Grounder(char, null, metrics);
+const platforms = new PlatformWorld(scene);
+const grounder = new Grounder(char, null, metrics, platforms);
 
 function setTerrain(preset, seed = state.seed) {
   if (terrain) { scene.remove(terrain.mesh); terrain.dispose(); }
@@ -95,6 +97,35 @@ function updateMarkers() {
   }
 }
 
+function frameLabel(st) {
+  if (st.anchorObj !== null) {
+    const p = platforms.get(st.anchorObj);
+    return p ? `台面局部坐标 (id=${p.id}「${p.name}」)` : `失效台面 id=${st.anchorObj}`;
+  }
+  return '世界坐标 (静态地面)';
+}
+
+function updateAnchorPanel() {
+  const rows = ['L', 'R'].map((s) => {
+    const st = grounder.feet[s];
+    const side = s === 'L' ? '左脚' : '右脚';
+    const status = st.planted ? '已锚定' : '未锚定';
+    // while anchored show the live (empty) reason; once released, prefer the
+    // persistent object-failure explanation so it stays on screen after the
+    // foot is back on ordinary ground
+    const reasonCode = st.anchorObj !== null
+      ? st.releaseReason
+      : (st.objectReleaseReason !== RELEASE.NONE ? st.objectReleaseReason : st.releaseReason);
+    const reason = RELEASE_LABEL[reasonCode] ?? reasonCode;
+    const rv = st.relVel.length();
+    return `<tr><td>${side}</td><td>${status}</td><td>${frameLabel(st)}</td>` +
+      `<td>${reason}</td><td>${rv.toFixed(3)}</td></tr>`;
+  }).join('');
+  $('anchors').innerHTML =
+    '<table><thead><tr><th>脚</th><th>接触</th><th>锚点坐标系</th><th>失效原因</th><th>相对速度(m/s)</th></tr></thead>' +
+    `<tbody>${rows}</tbody></table>`;
+}
+
 // ---------- UI ----------
 const $ = (id) => document.getElementById(id);
 $('cbCorrect').addEventListener('change', (e) => { state.show.correct = e.target.checked; grounder.enabled = e.target.checked; });
@@ -114,6 +145,35 @@ for (const [k, v] of Object.entries(PRESETS)) {
 }
 sel.value = state.preset;
 sel.addEventListener('change', () => { setTerrain(sel.value); resetWalk(); });
+
+const selPlat = $('selPlatform');
+for (const [k, v] of Object.entries(PLATFORM_SCENARIOS)) {
+  const o = document.createElement('option');
+  o.value = k; o.textContent = v.label;
+  selPlat.appendChild(o);
+}
+selPlat.value = 'none';
+selPlat.addEventListener('change', () => {
+  platforms.buildScenario(selPlat.value);
+  resetWalk();
+});
+$('btnRecycle').addEventListener('click', () => {
+  // delete and rebuild every current object under a new generation id; the
+  // same-name replacement must not inherit any old anchor
+  for (const def of platforms._defs) platforms.recycle(def.name);
+  grounder.reset(RELEASE.RESET);
+});
+$('rngSeek').addEventListener('input', (e) => {
+  const t = parseFloat(e.target.value);
+  $('seekVal').textContent = t.toFixed(2) + 's';
+  state.paused = true;
+  $('btnPause').textContent = '继续';
+  state.simTime = t;
+  state.distance = 0.5 + char.speed * t;
+  grounder.seek(t);
+  metrics.cut();
+  stepSim(0); // rebuild contacts deterministically from samples at time t
+});
 $('btnRegen').addEventListener('click', () => {
   state.seed = (Math.random() * 1e6) | 0;
   setTerrain(state.preset, state.seed);
@@ -233,6 +293,12 @@ function animate(now) {
   updateMarkers();
   renderer.render(scene, camera);
   updateLive();
+  updateAnchorPanel();
+  const rng = $('rngSeek');
+  if (document.activeElement !== rng) {
+    rng.value = Math.min(12, state.simTime).toFixed(2);
+    $('seekVal').textContent = state.simTime.toFixed(2) + 's';
+  }
 }
 
 let liveTimer = 0;
@@ -251,6 +317,37 @@ function updateLive() {
 window.__app = {
   setTerrain: (p) => { setTerrain(p, 7); resetWalk(); },
   setSpeed: (v) => { state.speed = v; },
+  setPlatform: (key) => {
+    platforms.buildScenario(key);
+    selPlat.value = key;
+    resetWalk();
+  },
+  recyclePlatform: (name) => {
+    const ids = platforms.recycle(name);
+    grounder.reset(RELEASE.RESET);
+    return ids;
+  },
+  seek: (t) => {
+    state.paused = true;
+    state.simTime = t;
+    state.distance = 0.5 + char.speed * t;
+    grounder.seek(t);
+    metrics.cut();
+    stepSim(0);
+  },
+  contacts: () => ['L', 'R'].map((s) => {
+    const st = grounder.feet[s];
+    return {
+      side: s, planted: st.planted, anchorObj: st.anchorObj,
+      frame: st.anchorFrame, reason: st.releaseReason,
+      objectReason: st.objectReleaseReason,
+      relVel: st.relVel.length(), surfaceVel: st.surfaceVel.toArray(),
+      plant: [st.plantX, st.plantY, st.plantZ],
+      local: st.anchorLocal.toArray(),
+    };
+  }),
+  registry: () => [...platforms.registry.values()].map((p) => ({ id: p.id, name: p.name, pose: { ...p.pose } })),
+  step: (dt = 1 / 120) => { stepSim(dt); },
   setToggles: (t) => {
     if (t.ghost !== undefined) { state.show.ghost = t.ghost; ghost.root.visible = t.ghost; $('cbGhost').checked = t.ghost; }
     if (t.contacts !== undefined) { state.show.contacts = t.contacts; $('cbContacts').checked = t.contacts; }

@@ -109,6 +109,69 @@ try {
   const hole = results.find((r) => r.name.startsWith('hole'));
   if (!hole || hole.misses === 0) { console.log('FAIL  hole scenario produced no sample misses'); fail++; }
 
+  // ---- moving-platform acceptance (UI + contact semantics) ----
+  const check = (name, cond, detail = '') => {
+    if (cond) console.log(`PASS  ${name}`);
+    else { fail++; console.log(`FAIL  ${name} ${detail}`); }
+  };
+
+  // rotating disc: an object-local anchor must form and the panel show it
+  await page.evaluate(`window.__app.setTerrain('flat'); window.__app.setPlatform('disc-rotate');`);
+  const discId = await page.evaluate(`window.__app.registry()[0].id`);
+  let discContacts = null;
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(120);
+    discContacts = await page.evaluate(`window.__app.contacts()`);
+    if (discContacts.some((c) => c.anchorObj === discId)) break;
+  }
+  check('ui: disc object-local anchor forms',
+    discContacts.some((c) => c.anchorObj === discId), JSON.stringify(discContacts.map((c) => c.anchorObj)));
+  const anchored = discContacts.find((c) => c.anchorObj === discId);
+  check('ui: anchor frame labelled with object id',
+    anchored && anchored.frame === `object:${discId}`, anchored?.frame);
+  const panelText = await page.textContent('#anchors');
+  check('ui: anchor panel renders coordinate frame + failure reason columns',
+    panelText.includes('锚点坐标系') && panelText.includes('失效原因') && panelText.includes('台面局部坐标'));
+
+  // relative velocity stays low while riding the rotating disc (no false slip)
+  let maxRel = 0;
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(100);
+    const cs = await page.evaluate(`window.__app.contacts()`);
+    for (const c of cs) if (c.anchorObj === discId) maxRel = Math.max(maxRel, c.relVel);
+  }
+  check('ui: disc-riding sole relative speed stays small', maxRel < 0.6, `maxRel=${maxRel.toFixed(3)}`);
+  await page.screenshot({ path: path.join(root, 'test', 'shot-platform-disc.png') });
+
+  // vanish: object-gone reason must be recorded and persist on the panel
+  await page.evaluate(`window.__app.setPlatform('vanish');`);
+  let vanishReason = null;
+  for (let i = 0; i < 60; i++) {
+    await page.waitForTimeout(120);
+    const cs = await page.evaluate(`window.__app.contacts()`);
+    if (cs.some((c) => c.objectReason === 'object-gone')) { vanishReason = 'object-gone'; break; }
+  }
+  check('ui: vanishing platform records object-gone reason', vanishReason === 'object-gone', String(vanishReason));
+  const vanishPanel = await page.textContent('#anchors');
+  check('ui: panel shows the object-gone explanation', vanishPanel.includes('台面已删除'));
+
+  // recycle: same-name replacement gets a new generation, no inherited anchor
+  await page.evaluate(`window.__app.setPlatform('recycle');`);
+  await page.waitForTimeout(2500);
+  const oldId = await page.evaluate(`window.__app.registry()[0].id`);
+  const recycledIds = await page.evaluate(`window.__app.recyclePlatform('回收台面')`);
+  const freshId = await page.evaluate(`window.__app.registry()[0].id`);
+  check('ui: recycled same-name platform gets a fresh id',
+    recycledIds.includes(oldId) && freshId !== oldId, `old=${oldId} fresh=${freshId}`);
+
+  // seek: deterministic rebuild at the same time
+  await page.evaluate(`window.__app.setPlatform('disc-rotate');`);
+  await page.evaluate(`window.__app.seek(9.0)`);
+  const snapA = await page.evaluate(`JSON.stringify(window.__app.contacts().map(c => [c.anchorObj, c.frame, c.plant]))`);
+  await page.evaluate(`window.__app.seek(9.0)`);
+  const snapB = await page.evaluate(`JSON.stringify(window.__app.contacts().map(c => [c.anchorObj, c.frame, c.plant]))`);
+  check('ui: seek to same time rebuilds identical contact state', snapA === snapB);
+
   await browser.close();
   if (server) server.kill();
   process.exit(fail ? 1 : 0);
