@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>展馆虚拟讲解员 · 地形落地调整</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1c2126; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+    #app { position: fixed; inset: 0; }
+    #panel {
+      position: fixed; top: 12px; right: 12px; width: 300px; max-height: calc(100% - 24px);
+      overflow-y: auto; background: rgba(20, 26, 32, 0.92); color: #dfe7ee;
+      border: 1px solid #3a4652; border-radius: 8px; padding: 12px 14px; font-size: 13px;
+    }
+    #panel h3 { margin: 0 0 8px; font-size: 14px; color: #8fc3ff; }
+    #panel label { display: block; margin: 5px 0; cursor: pointer; }
+    #panel button {
+      margin: 4px 4px 0 0; padding: 4px 10px; background: #2b6cb0; color: #fff;
+      border: 0; border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    #panel button:hover { background: #3182ce; }
+    #panel button:disabled { background: #4a5568; cursor: default; }
+    #panel select { width: 100%; margin-top: 2px; background: #232b33; color: #dfe7ee; border: 1px solid #3a4652; border-radius: 4px; padding: 3px; }
+    #live { margin-top: 8px; padding: 6px; background: #141a20; border-radius: 4px; font-size: 11px; line-height: 1.5; color: #9fb3c8; }
+    #results { margin-top: 8px; font-size: 11px; }
+    #results table { border-collapse: collapse; width: 100%; }
+    #results th, #results td { border: 1px solid #3a4652; padding: 3px 4px; text-align: right; }
+    #results th { background: #232b33; color: #8fc3ff; }
+    .hint { color: #7c8b99; font-size: 11px; margin-top: 6px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="panel">
+    <h3>落地调整控制台</h3>
+    <label><input type="checkbox" id="cbCorrect" checked /> 落地修正 (采样 + 两骨IK)</label>
+    <label><input type="checkbox" id="cbGhost" /> 原始姿态残影</label>
+    <label><input type="checkbox" id="cbContacts" checked /> 接触点 / 地面法线</label>
+    <label><input type="checkbox" id="cbTargets" /> IK 目标点</label>
+    <label><input type="checkbox" id="cbFollow" checked /> 相机跟随</label>
+    <label>播放速度 <span id="speedVal">1.00x</span>
+      <input type="range" id="rngSpeed" min="0.25" max="2" step="0.05" value="1" style="width:100%" />
+    </label>
+    <label>地形
+      <select id="selTerrain"></select>
+    </label>
+    <div>
+      <button id="btnRegen">重新生成地形</button>
+      <button id="btnPause">暂停</button>
+      <button id="btnStep">单步</button>
+    </div>
+    <div>
+      <button id="btnTest">运行测试场景</button>
+      <button id="btnDl" disabled>下载指标 JSON</button>
+    </div>
+    <div id="live"></div>
+    <div id="results"></div>
+    <div class="hint">
+      地形采样每帧实时进行，切换/重新生成地形后立即重新计算。<br/>
+      支撑脚权重=1，摆动脚仅保留弱 proximity 权重，避免双脚同时硬贴地面。<br/>
+      采样丢失（缺口）时该脚连续退回原始动画。
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
